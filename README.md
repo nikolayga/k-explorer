@@ -1,6 +1,6 @@
 # Playing for Keeps explorer
 
-##Run
+## Run
 
 1. Create MySql database and run sql dumn - dump.sql
 2. npm start
