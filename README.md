@@ -1,4 +1,4 @@
-# Playing for Keeps explorer
+# Playing for Keeps - explorer
 
 ## Run
 
