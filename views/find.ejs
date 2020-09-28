@@ -1,0 +1,95 @@
+<% include partials/header %>
+
+<% include partials/navbar %>
+
+
+<script src="/vendors/arcticmodal/jquery.arcticmodal-0.3.min.js"></script>
+<link rel="stylesheet" href="/vendors/arcticmodal/jquery.arcticmodal-0.3.css">
+<link rel="stylesheet" href="/vendors/arcticmodal/themes/simple.css">
+
+<main role="main" class="col-md-9 ml-sm-auto col-lg-10 px-4 mt-3">
+	<% include partials/navsmall %>
+	<h2>Find deposit by etherium address</h2>
+	<div class="table-responsive" style="background:#fff;">
+		<% if(data && data.length>0){ %>
+		<table id="deposites" class="table table-striped table-bordered" >
+		   <thead>
+				<tr>
+					<th>Date/Txhash</th>
+					<th class="no-sort">Info</th>
+					<th style="width:170px;" class="no-sort">Lot Size / Fee (tBTC)</th>
+					<th style="width:120px;">State</th>
+				</tr>
+		   </thead>
+		   <tbody>
+				<% for(var i = 0; i < data.length; i++){ %>
+				<tr rowspan="2">
+					<td data-order="<%=moment(data[i]['date']).format('X') %>">
+						<div class="max-90p"><a href="<%=tracker%>tx/<%= data[i]['txhash'] %>" target="_blank"><%= data[i]['txhash'] %></a></div>
+						<%= moment(data[i]['date']).fromNow()%> <small>( <%=moment(data[i]['date']).format('lll') %> ) </small>
+					</td>
+					<td>
+						<div class="clearfix">
+							<div class="float-left">Owner Addr &nbsp;</div>
+							<div class="max-70p float-left">
+								<a href="<%=tracker%>address/<%= data[i]['to'] %>" target="_blank"><%= data[i]['to'] %></a>
+							</div>
+						</div>
+						<div class="clearfix">
+							<div class="float-left">Deposit Addr &nbsp;</div>
+							<div class="max-70p float-left">
+								<a href="<%=tracker%>address/<%= data[i]['_depositContractAddress'] %>" target="_blank"><%= data[i]['_depositContractAddress'] %></a>
+							</div>
+						</div>
+						<div class="clearfix">
+							<div class="float-left">Keep Addr &nbsp;</div>
+							<div class="max-70p float-left">
+								<a href="<%=tracker%>address/<%= data[i]['_keepAddress'] %>" target="_blank"><%= data[i]['_keepAddress'] %></a>
+							</div>
+						</div>
+					</td>
+					<td>
+						<div class="legend">Value <%= data[i]['value'] %> tBTC</div>	
+						<div class="legend">Fee <%= data[i]['value'] %> tBTC</div>	
+					</td>
+					<td data-order="<% if(data[i]['isFunded']=='Funded'){ %>1<%}else{%>0<%}%>">
+						<div class="float-left">
+							<% if(data[i]['isFunded']=='Funded'){ %>
+							<div class="legend"><i class="fa fa-circle text-success"></i> Funded/Minted </div>	
+							<%}%>
+							<% if(data[i]['isRedeemed']=='Redeemed'){ %>
+							<div class="legend"><i class="fa fa-circle text-secondary"></i> Redeemed </div>
+							<%}%>
+							<% if(data[i]['isFunded']!='Funded' && data[i]['isRedeemed']!='Redeemed'){ %>
+							<div class="legend"><i class="fa fa-circle text-warning "></i> Processing </div>
+							<%}%>
+						</div>
+					</td>
+				</tr>
+				<%}%>
+		   </tbody>
+		</table>
+		<% }else{ %>
+		<div class="alert alert-info">We didn't find any deposit</div>
+		<%}%>
+    </div>
+</main>
+
+
+
+<script type="text/javascript">
+$(function(){
+	$(document).on('click','.js-view',function(e){
+		e.preventDefault();
+		var url = $(this).attr('href');
+		$.arcticmodal({
+		    closeOnEsc:false,
+			closeOnOverlayClick:false,
+			type: 'ajax',
+			url: url
+		});		
+	});
+});
+</script>
+
+<% include partials/footer %>
