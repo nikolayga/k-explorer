@@ -15,7 +15,7 @@ Open http://localhost:3000 to view it in the browser.
 ![Alt-текст](http://keep-explorer.info/img/dashboard.png "Dashboard")
 
 ###### Deposits list
-![Alt-текст](http://keep-explorer.info/img/deposits.png "Deposits list")
+![Alt-текст](http://keep-explorer.info/img/deposits_v2.png "Deposits list")
 
 ###### Checking deposit state
 ![Alt-текст](http://keep-explorer.info/img/deposit-state.png "Checking deposit state")
