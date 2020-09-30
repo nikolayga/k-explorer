@@ -1,14 +1,19 @@
 import Web3 from "web3"
 import TBTC from "@keep-network/tbtc.js"
-//import TBTC from "./tbtc.js/index.js"
+
+import { BitcoinHelpers } from "@keep-network/tbtc.js"
+import { EthereumHelpers } from "@keep-network/tbtc.js"
+
+import DepositJSON from "@keep-network/tbtc/artifacts/Deposit.json"
+import BondedECDSAKeepJSON from "@keep-network/keep-ecdsa/artifacts/BondedECDSAKeep.json"
+import TBTCConstantsJSON from "@keep-network/tbtc/artifacts/TBTCConstants.json"
+
+import web3Utils from "web3-utils"
 import ProviderEngine from "web3-provider-engine"
 import Subproviders from "@0x/subproviders"
-import { BitcoinHelpers } from "@keep-network/tbtc.js"
-//import BitcoinHelpers from "./tbtc.js/src/BitcoinHelpers.js"
-/** @typedef { import("./tbtc.js/src/BitcoinHelpers.js").TransactionInBlock } BitcoinTransaction */
-/** @typedef { import("./tbtc.js/src/BitcoinHelpers.js").OnReceivedConfirmationHandler } OnReceivedConfirmationHandler */
-
 import { createRequire } from 'module';
+
+const { toBN } = web3Utils
 const require = createRequire(import.meta.url);
 const express = require('express');
 const fs = require('fs');
@@ -244,7 +249,7 @@ app.get('/transfers/', (req, res) =>{
 
 app.get('/deposits/:address', async (req, res) =>{
 	try {
-		if(req.header('Referer') && req.header('Referer').includes("//keep-explorer.info")){
+		if(req.header('Referer') && req.header('Referer').includes("//keep-explorer.info") && Web3.utils.isAddress(req.params.address)){
 			var info = await getDepositInfo(req.params.address);
 			res.render('depositInfo', {current:"/depositInfo/", pageTitle:"depositInfo", info:info, address:req.params.address, moment: moment,tracker:eth_tracker});	
 		}else res.redirect('/deposits/');
@@ -285,17 +290,35 @@ async function getDepositInfo(depositAddress){
 			}
 		});
 
-		//const lotSizes = await tbtc.Deposit.availableSatoshiLotSizes()
-		//var systemContract = await tbtc.Deposit.system()
-		//var depositFactoryContract  = await tbtc.Deposit.depositFactory()
-		//var depositTokenContract    = await tbtc.Deposit.depositToken()
-		//var TokenContract   		= await tbtc.Deposit.token()
-		//var vendingMachineContract  = await tbtc.Deposit.vendingMachine()
-		//var fundingScriptContract   = await tbtc.Deposit.fundingScript()
+		const networkId = await tbtc.config.web3.eth.net.getId();
+		var keepAddress = null;
 		
-		var deposit = await tbtc.Deposit.withAddress(depositAddress) 
-		var currentState = await deposit.getCurrentState();
+		var sql = `SELECT _keepAddress FROM systemContract WHERE _depositContractAddress = '${depositAddress}' AND event='Created'`;
+	    if( keepAddress = connection.query(sql)) {
+			keepAddress = keepAddress[0]._keepAddress;
+		}
+	
+		const depositContract = EthereumHelpers.buildContract(
+		  web3,
+		  /** @type {TruffleArtifact} */ (DepositJSON).abi,
+		  depositAddress
+		)
 		
+		const keepContract = EthereumHelpers.buildContract(
+		  web3,
+		  /** @type {TruffleArtifact} */ (BondedECDSAKeepJSON).abi,
+		  keepAddress
+		)
+		
+		const constantsContract = EthereumHelpers.getDeployedContract(
+		  /** @type {TruffleArtifact} */ TBTCConstantsJSON,
+		  web3,
+		  networkId.toString()
+		)
+		
+		//state
+		var currentState = parseInt(await depositContract.methods.currentState().call());
+	
 		console.log(currentState);
 		var result = new Array;
 		var step = 0;
@@ -319,7 +342,9 @@ async function getDepositInfo(depositAddress){
 				<p class="card-text">Requested a Keep signing group to generate a Bitcoin address</p>');
 				step ++;
 				
-				BitcoinAddress = await deposit.getBitcoinAddress();
+				//биткоин адрес
+				var publicKeyPoint = findOrWaitForPublicKeyPoint(depositAddress);
+				var BitcoinAddress =  await publicKeyPointToBitcoinAddress(publicKeyPoint);
 				
 				if(BitcoinAddress){
 					result.push(`<h5 class="card-title"><i class="fa fa-check text-success"></i> Signers generated a Bitcoin address</h5>\
@@ -332,12 +357,13 @@ async function getDepositInfo(depositAddress){
 				}
 				
 				if(BitcoinAddress && currentState<=4){
-					transactions = await deposit.fundingTransaction;
+					var LotSizeSatoshis = toBN(await depositContract.methods.lotSizeSatoshis().call());
+					transactions = await BitcoinHelpers.Transaction.findOrWaitFor(BitcoinAddress,LotSizeSatoshis.toNumber());
 					
 					if(transactions){
 						step ++;
 						result.push(`<h5 class="card-title"><i class="fa fa-check text-success"></i> Payment send to the Bitcoin address</h5>\
-						<p class="card-text">Transaction - <a href="https://www.blockchain.com/btc/tx/${transactions.transactionID}" target="_blank">${transactions.transactionID}</a></p>`);
+						<p class="card-text max-320">Transaction - <a href="https://www.blockchain.com/btc/tx/${transactions.transactionID}" target="_blank">${transactions.transactionID}</a></p>`);
 					}else{
 						result.push('<h5 class="card-title"><i class="fa fa-clock-o text-warning"></i> Payment send to the Bitcoin address.</h5>\
 						<p class="card-text"></p>');
@@ -345,7 +371,7 @@ async function getDepositInfo(depositAddress){
 				}
 				
 				if(transactions && currentState<=4){
-					var required = await deposit.requiredConfirmations;
+					var required = parseInt(await constantsContract.methods.getTxProofDifficultyFactor().call());  
 					var transactionID = transactions.transactionID;
 					
 					var confirmations = await getConfirmations(transactionID);
@@ -373,7 +399,7 @@ async function getDepositInfo(depositAddress){
 								var sql = `SELECT txhash  FROM  TokenContract WHERE \`to\`!='${depositAddress}' and txhash='${data[0].txhash}'`;
 								var data_txhash = connection.query(sql);
 								step ++;
-								result.push(`<h5 class="card-title"><i class="fa fa-check text-success"></i> tBTC Minted</h5><p class="card-text">Transaction - <a href="${eth_tracker}tx/${data_txhash[0].txhash}" target="_blank">${data_txhash[0].txhash}</a></p>`);
+								result.push(`<h5 class="card-title"><i class="fa fa-check text-success"></i> tBTC Minted</h5><p class="card-text max-320">Transaction - <a href="${eth_tracker}tx/${data_txhash[0].txhash}" target="_blank">${data_txhash[0].txhash}</a></p>`);
 							}else{
 								result.push(`<h5 class="card-title"><i class="fa fa-clock-o text-warning"></i> tBTC Minted</h5><p class="card-text"></p>`);
 							}
@@ -384,11 +410,11 @@ async function getDepositInfo(depositAddress){
 				if(currentState>4 && currentState<=7){
 
 					step ++;
-					result.push(`<h5 class="card-title"><i class="fa fa-check text-success"></i> Payment send to the Bitcoin address</h5>\
-					<p class="card-text"></p>`);
+					result.push('<h5 class="card-title"><i class="fa fa-check text-success"></i> Payment send to the Bitcoin address</h5>\
+					<p class="card-text"></p>');
 						
 					step ++;
-					result.push(`<h5 class="card-title"><i class="fa fa-check text-success"></i> Got required BTC confirmations</h5><p class="card-text"></p>`);
+					result.push('<h5 class="card-title"><i class="fa fa-check text-success"></i> Got required BTC confirmations</h5><p class="card-text"></p>');
 					
 					step ++;
 					result.push(`<h5 class="card-title"><i class="fa fa-check text-success"></i> Depositor proved funding transaction to Deposit</h5><p class="card-text"></p>`);
@@ -399,7 +425,7 @@ async function getDepositInfo(depositAddress){
 						var sql = `SELECT txhash  FROM  TokenContract WHERE \`to\`!='${depositAddress}' and txhash='${data[0].txhash}'`;
 						var data_txhash = connection.query(sql);
 						step ++;
-						result.push(`<h5 class="card-title"><i class="fa fa-check text-success"></i> tBTC Minted</h5><p class="card-text">Transaction - <a href="${eth_tracker}tx/${data_txhash[0].txhash}" target="_blank">${data_txhash[0].txhash}</a></p>`);
+						result.push(`<h5 class="card-title"><i class="fa fa-check text-success"></i> tBTC Minted</h5><p class="card-text max-320">Transaction - <a href="${eth_tracker}tx/${data_txhash[0].txhash}" target="_blank">${data_txhash[0].txhash}</a></p>`);
 					}else{
 						result.push(`<h5 class="card-title"><i class="fa fa-clock-o text-warning"></i> tBTC Minted</h5><p class="card-text"></p>`);
 					}
@@ -432,9 +458,7 @@ async function getDepositInfo(depositAddress){
 		}
 		
 		var pr = Math.round(step / 6 * 100);
-		var pre_info = `<div class="progress mb-3">\
-			  <div class="progress-bar" role="progressbar" style="width: ${pr}%;" aria-valuenow="${pr}" aria-valuemin="0" aria-valuemax="100">${pr}%</div>\
-			</div>`;
+		var pre_info = `<div class="progress mb-3"><div class="progress-bar" role="progressbar" style="width: ${pr}%;" aria-valuenow="${pr}" aria-valuemin="0" aria-valuemax="100">${pr}%</div></div>`;
 			
 		attempts = 0;
 		return pre_info + result.join("");
@@ -461,21 +485,22 @@ async function getConfirmations(transactionID){
 	})
 }
 
+function findOrWaitForPublicKeyPoint(depositAddress) {
+	var sql = `SELECT _signingGroupPubkeyX as x ,_signingGroupPubkeyY as y FROM systemContract WHERE _depositContractAddress = '${depositAddress}' AND event='RegisteredPubkey'`;
+	return connection.query(sql)[0];
+}
+
+async function publicKeyPointToBitcoinAddress(publicKeyPoint) {
+    return BitcoinHelpers.Address.publicKeyPointToP2WPKHAddress(
+      publicKeyPoint.x,
+      publicKeyPoint.y,
+      tbtc.config.bitcoinNetwork
+    )
+}
+
 
 /**dev***/
+
 app.listen(3000, () =>{
     console.log('Server default online!');
 });
-
-
-/*
-var privateKey = fs.readFileSync( __dirname+'/ssl/privatekey.pem' );
-var certificate = fs.readFileSync( __dirname+'/ssl/certificate.pem' );
-
-https.createServer({
-    key: privateKey,
-    cert: certificate
-}, app).listen(443,() =>{
-    console.log('Server https online!');
-});
-*/
